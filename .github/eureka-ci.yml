@@ -1,0 +1,62 @@
+name: Eureka Server CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+    # Only trigger this pipeline if files inside the eureka-server folder change
+    paths:
+      - 'infrastructure/eureka-server/**'
+      - '.github/workflows/eureka-ci.yml'
+
+env:
+  REGISTRY: ghcr.io
+  # Appends /eureka-server to the image name so it doesn't overwrite your infra repo name
+  IMAGE_NAME: ${{ github.repository }}/eureka-server
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Compile and Package with Maven
+        # Explicitly targets the subfolder for the Maven build
+        working-directory: ./infrastructure/eureka-server
+        run: mvn clean package -DskipTests
+
+      - name: Log in to GitHub Container Registry (GHCR)
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker Image Metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          # Explicitly targets the subfolder for the Docker build
+          context: ./infrastructure/eureka-server
+          push: true
+          tags: ${{ id.meta.outputs.tags }}
+          labels: ${{ id.meta.outputs.labels }}
